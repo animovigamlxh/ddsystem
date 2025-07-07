@@ -45,7 +45,10 @@ case $os_choice in
         OS_NAME="Ubuntu 22.04 (Jammy) x64"
         ;;
     4)
-        SYSTEM_ARGS="--alpine -v 64"
+        # 使用-dd模式直接写入 Alpine Linux 官方镜像
+        # 镜像URL来自: https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/
+        ALPINE_IMAGE_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-virt-3.19.1-x86_64.iso"
+        SYSTEM_ARGS="-dd '$ALPINE_IMAGE_URL'"
         OS_NAME="Alpine Linux (Latest) x64"
         ;;
     5)
@@ -94,7 +97,12 @@ fi
 chmod +x InstallNET.sh
 echo -e "${GREEN}开始安装系统，这可能需要一些时间。您的SSH连接将会中断。${NC}"
 echo -e "${GREEN}请在10-20分钟后尝试使用新设置的密码重新连接您的服务器。${NC}"
-bash InstallNET.sh ${SYSTEM_ARGS}
+# 在执行dd时，需要确保参数被正确解析，特别是带有URL的dd
+if [[ $os_choice == 4 ]]; then
+    eval "bash InstallNET.sh $SYSTEM_ARGS"
+else
+    bash InstallNET.sh ${SYSTEM_ARGS}
+fi
 
 # 清理 (这部分代码可能不会执行，因为DD脚本会重启)
 rm -f InstallNET.sh
