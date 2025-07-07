@@ -4,105 +4,134 @@
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m'
 
-# DD脚本地址
-SCRIPT_URL="https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh"
-
-# 检查root权限
-[ $(id -u) != "0" ] && { echo -e "${RED}错误: 必须使用root权限运行此脚本${NC}"; exit 1; }
-
-# 显示通用警告
-clear
-echo -e "${RED}警告：此操作将重装您的服务器操作系统！${NC}"
-echo -e "${RED}这将清除服务器上的所有数据！请确保已备份重要数据！${NC}"
-echo -e "${YELLOW}在继续之前，请三思而后行。${NC}"
-echo ""
-
-# 操作系统选择菜单
-echo -e "${GREEN}请选择您想安装的操作系统：${NC}"
-echo "1) Debian 12 (Bookworm) [推荐]"
-echo "2) Debian 11 (Bullseye)"
-echo "3) Ubuntu 22.04 (Jammy)"
-echo "4) Alpine Linux (Latest)"
-echo "5) 取消操作"
-read -p "请输入选项 [1-5]: " os_choice
-
-SYSTEM_ARGS=""
-OS_NAME=""
-
-case $os_choice in
-    1)
-        SYSTEM_ARGS="-d 12 -v 64"
-        OS_NAME="Debian 12 (Bookworm) x64"
-        ;;
-    2)
-        SYSTEM_ARGS="-d 11 -v 64"
-        OS_NAME="Debian 11 (Bullseye) x64"
-        ;;
-    3)
-        SYSTEM_ARGS="-u 22.04 -v 64"
-        OS_NAME="Ubuntu 22.04 (Jammy) x64"
-        ;;
-    4)
-        # 使用-dd模式直接写入 Alpine Linux 官方镜像
-        # 镜像URL来自: https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/
-        ALPINE_IMAGE_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-virt-3.19.1-x86_64.iso"
-        SYSTEM_ARGS="-dd '$ALPINE_IMAGE_URL'"
-        OS_NAME="Alpine Linux (Latest) x64"
-        ;;
-    5)
-        echo "操作已取消。"
-        exit 0
-        ;;
-    *)
-        echo -e "${RED}无效选项，脚本已中止。${NC}"
+# 检查是否为root用户
+check_root() {
+    if [ "$(id -u)" != "0" ]; then
+        echo -e "${RED}错误: 必须使用root权限运行此脚本${NC}"
         exit 1
-        ;;
-esac
+    fi
+}
 
-echo ""
+# 检查系统要求
+check_requirements() {
+    echo -e "${BLUE}正在检查系统要求...${NC}"
+    
+    # 检查wget
+    if ! command -v wget &> /dev/null; then
+        echo -e "${YELLOW}正在安装wget...${NC}"
+        apt-get update
+        apt-get install -y wget
+    fi
+    
+    # 检查可用内存
+    total_mem=$(free -m | awk '/^Mem:/{print $2}')
+    if [ $total_mem -lt 1024 ]; then
+        echo -e "${RED}警告: 建议至少有1GB内存${NC}"
+        read -p "是否继续？(y/n) " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+}
+
+# 选择系统
+select_system() {
+    echo -e "${GREEN}请选择要安装的系统：${NC}"
+    echo "1) Debian 11"
+    echo "2) Debian 12"
+    echo "3) Ubuntu 20.04"
+    echo "4) Ubuntu 22.04"
+    echo "5) 自定义镜像地址"
+    
+    read -p "请输入选项 [1-5]: " system_choice
+    
+    case $system_choice in
+        1)
+            DD_URL="https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh"
+            SYSTEM_ARGS="-d 11 -v 64 -a"
+            ;;
+        2)
+            DD_URL="https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh"
+            SYSTEM_ARGS="-d 12 -v 64 -a"
+            ;;
+        3)
+            DD_URL="https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh"
+            SYSTEM_ARGS="-u 20.04 -v 64 -a"
+            ;;
+        4)
+            DD_URL="https://raw.githubusercontent.com/MoeClub/Note/master/InstallNET.sh"
+            SYSTEM_ARGS="-u 22.04 -v 64 -a"
+            ;;
+        5)
+            read -p "请输入自定义镜像地址: " custom_url
+            DD_URL=$custom_url
+            read -p "请输入自定义参数（如果需要）: " custom_args
+            SYSTEM_ARGS=$custom_args
+            ;;
+        *)
+            echo -e "${RED}无效的选项${NC}"
+            exit 1
+            ;;
+    esac
+}
+
 # 设置密码
-read -p "请为新系统设置root密码 (默认为 'password'): " root_password
-root_password=${root_password:-password}
+set_password() {
+    read -p "请设置root密码 (默认为 'password'): " root_password
+    if [ -z "$root_password" ]; then
+        root_password="password"
+    fi
+    SYSTEM_ARGS="$SYSTEM_ARGS -p $root_password"
+}
 
-# 组合最终参数, 注意密码要用单引号包裹，防止特殊字符导致问题
-SYSTEM_ARGS="$SYSTEM_ARGS -a -p '$root_password'"
+# 确认信息
+confirm_installation() {
+    echo -e "\n${YELLOW}请确认以下信息：${NC}"
+    echo -e "安装脚本: ${DD_URL}"
+    echo -e "系统参数: ${SYSTEM_ARGS}"
+    echo -e "root密码: ${root_password}"
+    
+    read -p "是否开始安装？(y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+}
 
-# 显示最终确认信息
-echo -e "\n${YELLOW}请最终确认您的安装配置：${NC}"
-echo -e "----------------------------------"
-echo -e "操作系统: ${GREEN}${OS_NAME}${NC}"
-echo -e "root密码: ${GREEN}${root_password}${NC}"
-echo -e "----------------------------------"
-echo -e "${RED}警告：所有数据将被清除！安装过程不可逆！${NC}"
-read -p "输入 'yes' 确认安装，输入其他任何内容取消: " confirm
-
-if [ "$confirm" != "yes" ]; then
-    echo "安装已取消。"
-    exit 0
-fi
-
-echo -e "\n${YELLOW}3秒后开始安装...${NC}"
-sleep 3
-
-# 下载并执行DD脚本
-echo -e "${GREEN}开始下载安装脚本...${NC}"
-wget --no-check-certificate -qO InstallNET.sh ${SCRIPT_URL}
-if [ $? -ne 0 ]; then
-    echo -e "${RED}下载安装脚本失败，请检查网络或脚本URL是否有效。${NC}"
-    exit 1
-fi
-
-chmod +x InstallNET.sh
-echo -e "${GREEN}开始安装系统，这可能需要一些时间。您的SSH连接将会中断。${NC}"
-echo -e "${GREEN}请在10-20分钟后尝试使用新设置的密码重新连接您的服务器。${NC}"
-# 在执行dd时，需要确保参数被正确解析，特别是带有URL的dd
-if [[ $os_choice == 4 ]]; then
-    eval "bash InstallNET.sh $SYSTEM_ARGS"
-else
+# 开始安装
+start_installation() {
+    echo -e "${GREEN}开始安装系统...${NC}"
+    
+    # 下载安装脚本
+    echo -e "${BLUE}下载安装脚本...${NC}"
+    wget --no-check-certificate -qO InstallNET.sh ${DD_URL}
+    
+    # 添加执行权限
+    chmod +x InstallNET.sh
+    
+    # 执行安装
+    echo -e "${YELLOW}执行安装程序...${NC}"
     bash InstallNET.sh ${SYSTEM_ARGS}
-fi
+}
 
-# 清理 (这部分代码可能不会执行，因为DD脚本会重启)
-rm -f InstallNET.sh
+# 主程序
+main() {
+    clear
+    echo -e "${GREEN}欢迎使用一键DD系统脚本${NC}"
+    echo -e "${YELLOW}警告：此操作将清除所有数据，请确保已备份重要数据！${NC}"
+    echo "-----------------------------------"
+    
+    check_root
+    check_requirements
+    select_system
+    set_password
+    confirm_installation
+    start_installation
+}
+
+# 运行主程序
+main 
